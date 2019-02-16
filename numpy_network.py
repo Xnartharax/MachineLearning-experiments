@@ -352,7 +352,7 @@ test_model = Model(
 )
 # data loading and preprocessing
 raw = pd.read_csv('./mnist_train.csv').values
-data = {'data': [(row[1:]/255)-0.5for row in raw], 'target': [row[0]for row in raw]}
+data = {'data': [(row[1:]/255)-0.5 for row in raw], 'target': [row[0]for row in raw]}
 
 x_train, x_test, y_train, y_test = train_test_split(data.get('data'), data.get('target'), test_size=0.02)
 x_train = np.array(x_train)
