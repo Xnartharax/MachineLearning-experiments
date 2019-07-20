@@ -26,7 +26,7 @@ def sqrt_plus(x):
 
 def sigmoid(x):
     try:
-        return 1/(1+exp(x))
+        return 1/(1+np.exp(x))
     except OverflowError:
         if x < 0:
             return 0.0
@@ -121,7 +121,7 @@ class LeakyReLU(ActFunc):
         return [1 if x > 0 else self.leak for x in ins]
 
 
-class Logit(ActFunc):
+class Linear(ActFunc):
     def normal(self, ins):
         return ins
 
@@ -155,6 +155,16 @@ class SoftmaxCrossEntropy(Loss):
         return np.subtract(_outs, targets)
 
 
+class SigmoidCrossEntropy(Loss):
+    def normal(self, outs, targets):
+        _outs = sigmoid(outs)
+        return sum([t*log(y+epsilon)for y, t in zip(_outs, targets)])*(-1)
+
+    def der(self, outs, targets):
+        _outs = sigmoid(outs)
+        return np.subtract(_outs, targets)
+
+
 class DenseLayer:
     def __init__(self, in_len, out_len, activation_func):
         self.w = (np.random.rand(out_len, in_len)-0.5)/sqrt(in_len)
@@ -164,7 +174,7 @@ class DenseLayer:
     def compute(self, ins):
         return self.act_func.normal(np.add(np.matmul(self.w, ins), self.b))
 
-    def run(self, ins):
+    def forward(self, ins):
         return self.compute(ins)
 
     def delta_compute(self, ins):
@@ -179,7 +189,7 @@ class DropoutLayer(DenseLayer):
         super(DropoutLayer, self).__init__(in_len, out_len, activation_func)
         self.drop = drop
 
-    def run(self, ins):
+    def forward(self, ins):
         outs = self.act_func.normal(np.add(np.matmul(self.w, ins), self.b))
         return np.multiply(outs, (1-self.drop))
 
@@ -192,10 +202,10 @@ class Model:
     def __init__(self, structure):
         self.structure = structure
 
-    def run(self, ins):
+    def forward(self, ins):
         steps = [ins]
         for layer in self.structure:
-            steps.append(layer.run(steps[-1]))
+            steps.append(layer.forward(steps[-1]))
         return steps
 
     def der_run(self, ins):
@@ -298,7 +308,7 @@ class Model:
     def validate(self, x_val, y_val):
         right = 0
         for x, y in zip(x_val, y_val):
-            if np.argmax(self.run(x)[-1]) == np.argmax(y):
+            if np.argmax(self.forward(x)[-1]) == np.argmax(y):
                 right += 1
         return round(right/x_val.shape[0], 3)
 
@@ -340,46 +350,46 @@ class Model:
                 model_layer.b = np.array(load_layer[1])
 
     def get_error(self, loss, x_test, y_test):
-        return sum([loss.normal(self.run(x)[-1], y) for x, y in zip(x_test, y_test)])/len(x_test)
+        return sum([loss.normal(self.forward(x)[-1], y) for x, y in zip(x_test, y_test)]) / len(x_test)
 
 
 # model initialization
+if __name__ == '__main__':
+    test_model = Model(
+        [DenseLayer(784, 300, LeakyReLU()),
+         DenseLayer(300, 100, LeakyReLU()),
+         DenseLayer(100, 10, Linear())]
+    )
+    # data loading and preprocessing
+    raw = pd.read_csv('./mnist_train.csv').values
+    data = {'data': [(row[1:]/255)-0.5 for row in raw], 'target': [row[0]for row in raw]}
 
-test_model = Model(
-    [DenseLayer(784, 300, LeakyReLU()),
-     DenseLayer(300, 100, LeakyReLU()),
-     DenseLayer(100, 10, Logit())]
-)
-# data loading and preprocessing
-raw = pd.read_csv('./mnist_train.csv').values
-data = {'data': [(row[1:]/255)-0.5 for row in raw], 'target': [row[0]for row in raw]}
+    x_train, x_test, y_train, y_test = train_test_split(data.get('data'), data.get('target'), test_size=0.02)
+    x_train = np.array(x_train)
+    x_test = np.array(x_test)
+    y_train = np.array([[1 if x == label else 0 for x in range(10)]for label in y_train])
+    y_test = np.array([[1 if x == label else 0 for x in range(10)]for label in y_test])
 
-x_train, x_test, y_train, y_test = train_test_split(data.get('data'), data.get('target'), test_size=0.02)
-x_train = np.array(x_train)
-x_test = np.array(x_test)
-y_train = np.array([[1 if x == label else 0 for x in range(10)]for label in y_train])
-y_test = np.array([[1 if x == label else 0 for x in range(10)]for label in y_test])
+    # dbg = Debugger(test_model)
 
-# dbg = Debugger(test_model)
+    print('{} datasets loaded'.format(x_train.shape[0]))
+    # print(dbg.gradient_checking(SoftmaxCrossEntropy(), [x_test[0]], [y_test[0]]))
+    print(test_model.get_error(SoftmaxCrossEntropy(), x_train[:50, :], y_train[:50, :]))
+    print('begin training')
+    test_model.load_weights(path='./network1.json')
+    # actual training
+    test_model.fit_adam(SoftmaxCrossEntropy(), x_train, y_train, x_test, y_test, 1,
+                        steps_per_epoch=400, learning_rate=0.01, l2_reg=0)
 
-print('{} datasets loaded'.format(x_train.shape[0]))
-# print(dbg.gradient_checking(SoftmaxCrossEntropy(), [x_test[0]], [y_test[0]]))
-print(test_model.get_error(SoftmaxCrossEntropy(), x_train[:50, :], y_train[:50, :]))
-print('begin training')
-test_model.load_weights(path='./network1.json')
-# actual training
-test_model.fit_adam(SoftmaxCrossEntropy(), x_train, y_train, x_test, y_test, 1,
-                    steps_per_epoch=400, learning_rate=0.01, l2_reg=0)
+    test_model.save_weights(path='./network1.json')
 
-test_model.save_weights(path='./network1.json')
+    # performance test
+    print(test_model.forward(x_train[0])[-1])
 
-# performance test
-print(test_model.run(x_train[0])[-1])
-
-#print(y_train[0])
-plt.plot(error_plt)
-plt.show()
-print('\nfinished training')
-print(test_model.get_error(SoftmaxCrossEntropy(), x_test, y_test))
-print(test_model.validate(x_test, y_test))
+    #print(y_train[0])
+    plt.plot(error_plt)
+    plt.show()
+    print('\nfinished training')
+    print(test_model.get_error(SoftmaxCrossEntropy(), x_test, y_test))
+    print(test_model.validate(x_test, y_test))
 
