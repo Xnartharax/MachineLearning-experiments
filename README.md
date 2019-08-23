@@ -12,6 +12,6 @@ Testing the LSTM functions of PyTorch. The model just overfits on some Google st
 
 ### TrademarkGenerator
 `WIP`
-
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Xnartharax/MachineLearning-experiments/master)  
 Randomly generates Names of Trademarks and Brands.
 [Data Source](https://register.dpma.de/DPMAregister/uebersicht)
